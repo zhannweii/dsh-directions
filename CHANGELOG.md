@@ -51,3 +51,11 @@
 ### 待人工验证
 
 - 页面内创建分支、卡片出结论、综合消息写回主线三条链路（需在 GUI 中点击）。
+
+### 发布准备（0.1.0 仓库化）
+
+- 仓库：<https://github.com/zhannweii/dsh-directions>（`main`，话题 `dsh-plugin`）。
+- 新增 `LICENSE`（MIT）、`engines.dsh`、`repository`/`homepage`/`author`/`keywords`。
+- `market/index.json` + `market/icons/dsh-directions.svg`：一个由 GitHub Pages 托管的 format 1 市场索引，
+  可在 DSH「发现 → 添加索引源」中直接添加 <https://zhannweii.github.io/dsh-directions/market/index.json>。
+- README 补齐安装说明、成本提示、实现说明与中英双语介绍。
