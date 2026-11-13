@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.1 — 2026-11-13
+
+反查来源：分叉出来的子会话也能看到「分叉自谁」。
+
+**问题**：0.2.0 让父会话看得到分叉，但子会话自己打开「方向」只有一句“你是副本，请回原会话”，说不出出处；`SessionHeader` 里本来就没有 `parentSession`。
+
+**做法**：把前缀匹配反过来用。
+
+- `index.js` 新增 `resolveOrigin(childId, inherited)`：先认 `parentSession`（子代理分支有），否则拿子会话第 `inherited` 条事件去和候选会话同位置的事件比摘要，`createdAt` 必须更早才算候选。
+- 兄弟分支共享同一段前缀，所以**不能取第一个命中**：收集全部命中后打分，优先「不是副本」（`inheritedEventCount === 0`）且「不是子代理」（`origin !== 'subagent'`）的会话，其次取创建更新的那个。
+- 命中结果缓存 10 分钟（`ORIGIN_TTL_MS`），单次最多读 `ORIGIN_LIMIT = 12` 个候选；首次约 3s，之后 <600ms。
+- 新增 `parentSnapshot(id, force)`：正反两个方向的扫描共用一份 30s 内的 `readSession` 快照，避免重复读日志。
+- `GET /list` 新增返回 `origin: { id, title } | null`（标题取 `sessionQuery.readTitle`）。
+- `client.js` 在「方向」页顶部渲染「⑂ 分叉自：<原标题> [打开原会话]」；空态按能否定位来源分三种文案。
+
 ## 0.2.0 — 2026-11-13
 
 识别「对话右上角 ⑂ 图标」分出来的会话。

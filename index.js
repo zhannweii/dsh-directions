@@ -17,6 +17,10 @@ const LABEL_CHARS = 60
 const SCAN_TTL_MS = 30_000
 /** Upper bound of candidate sessions read in one scan. */
 const SCAN_LIMIT = 40
+/** How long a reverse origin lookup stays cached, in ms. */
+const ORIGIN_TTL_MS = 600_000
+/** Upper bound of candidate parents read when resolving where a copy came from. */
+const ORIGIN_LIMIT = 12
 
 export const inject = ['sessions', 'sessionQuery', 'agents', 'subagents']
 
@@ -29,6 +33,10 @@ export function apply(ctx) {
    */
   const lineage = new Map()
   const scans = new Map()
+  /** Where a copied session came from: childId -> { parentId, at }. */
+  const origins = new Map()
+  /** Short-lived session-log snapshots, shared by both scan directions. */
+  const snaps = new Map()
 
   ctx.inject(['webServer'], (sub) => {
     sub.effect(() => {
@@ -63,7 +71,11 @@ export function apply(ctx) {
     } catch {
       /* not live */
     }
-    send(res, 200, { directions, inherited })
+    if (!inherited) {
+      inherited = Number((await parentSnapshot(parent))?.inheritedEventCount) || 0
+    }
+    const origin = inherited > 0 ? await resolveOrigin(parent, inherited) : null
+    send(res, 200, { directions, inherited, origin })
   }
 
   async function createRoute(req, res) {
@@ -198,12 +210,7 @@ export function apply(ctx) {
     const now = Date.now()
     if (!forceScan && cached && now - cached.at < SCAN_TTL_MS) return
     scans.set(parentId, { at: now })
-    let parentEvents = []
-    try {
-      parentEvents = (await ctx.sessionQuery.readSession(parentId))?.events ?? []
-    } catch {
-      return
-    }
+    const parentEvents = (await parentSnapshot(parentId, forceScan))?.events ?? []
     if (!parentEvents.length) return
     let records = []
     try {
@@ -218,12 +225,7 @@ export function apply(ctx) {
       if (!id || id === parentId || lineage.has(id)) continue
       if (!header.isSeeded) continue
       if (budget-- <= 0) break
-      let snapshot
-      try {
-        snapshot = await ctx.sessionQuery.readSession(id)
-      } catch {
-        continue
-      }
+      const snapshot = await parentSnapshot(id)
       const inherited = Number(snapshot?.inheritedEventCount) || 0
       const events = snapshot?.events ?? []
       if (inherited <= 0) continue
@@ -232,6 +234,94 @@ export function apply(ctx) {
       lineage.set(id, { parentId, inherited, createdAt: header.createdAt })
       scans.set(parentId, { at: Date.now() })
     }
+  }
+
+  /**
+   * Cached `readSession` snapshot. Live logs grow, so entries expire; the copied
+   * prefix they are used for never changes.
+   */
+  async function parentSnapshot(id, force) {
+    const cached = snaps.get(id)
+    const now = Date.now()
+    if (!force && cached && now - cached.at < SCAN_TTL_MS) return cached.snapshot
+    let snapshot
+    try {
+      snapshot = await ctx.sessionQuery.readSession(id)
+    } catch {
+      return undefined
+    }
+    snaps.set(id, { at: now, snapshot })
+    return snapshot
+  }
+
+  /**
+   * Where did `childId` come from?
+   *
+   * A declared `parentSession` wins. Otherwise the copied prefix is matched the
+   * other way round: the child's last inherited event must be byte-identical to
+   * the same-index event of its source.
+   */
+  async function resolveOrigin(childId, inherited) {
+    const cached = origins.get(childId)
+    if (cached && Date.now() - cached.at < ORIGIN_TTL_MS) return originPayload(cached.parentId)
+    const snapshot = await parentSnapshot(childId)
+    const events = snapshot?.events ?? []
+    const copied = Number(snapshot?.inheritedEventCount ?? inherited) || 0
+    if (copied <= 0 || events.length < copied) return null
+    let records = []
+    try {
+      records = await ctx.sessionQuery.listSessions()
+    } catch {
+      return null
+    }
+    const self = records.find((record) => String(record?.header?.id ?? '') === childId)
+    const declared = self?.header?.parentSession ? String(self.header.parentSession) : ''
+    if (declared) {
+      origins.set(childId, { parentId: declared, at: Date.now() })
+      return originPayload(declared)
+    }
+    const want = digest(events[copied - 1])
+    const createdAt = stamp(self?.header?.createdAt)
+    // Siblings forked from one origin share the same copied prefix, so a plain
+    // first-match picks a cousin. Collect every candidate, then prefer the one most
+    // likely to be the session the user actually forked from.
+    const matches = []
+    let budget = ORIGIN_LIMIT
+    for (const record of records) {
+      const header = record?.header ?? {}
+      const id = String(header.id ?? '')
+      if (!id || id === childId) continue
+      // A fork is always younger than its source.
+      if (createdAt && stamp(header.createdAt) >= createdAt) continue
+      if (budget-- <= 0) break
+      const candidate = await parentSnapshot(id)
+      const candidateEvents = candidate?.events ?? []
+      if (candidateEvents.length < copied) continue
+      if (digest(candidateEvents[copied - 1]) !== want) continue
+      matches.push({
+        id,
+        createdAt: stamp(header.createdAt),
+        copy: Number(candidate?.inheritedEventCount) > 0,
+        subagent: header.origin === 'subagent',
+      })
+    }
+    if (!matches.length) return null
+    const score = (m) => (m.copy ? 2 : 0) + (m.subagent ? 1 : 0)
+    matches.sort((a, b) => score(a) - score(b) || b.createdAt - a.createdAt)
+    const best = matches[0]
+    origins.set(childId, { parentId: best.id, at: Date.now() })
+    return originPayload(best.id)
+  }
+
+  /** Resolve a session id into what the panel shows as "forked from". */
+  async function originPayload(id) {
+    let title = ''
+    try {
+      title = String((await ctx.sessionQuery.readTitle(id))?.title ?? '').trim()
+    } catch {
+      /* title is optional */
+    }
+    return { id, title }
   }
 
   async function describeBranch(parentId, entry) {

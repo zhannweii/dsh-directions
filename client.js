@@ -59,6 +59,9 @@ window.__ModuleLoader__.load({
       .dshd-inner { max-width: 940px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
       .dshd-head { display: flex; flex-direction: column; gap: 6px; }
       .dshd-headrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .dshd-origin { display: flex; align-items: center; gap: 10px; padding: 10px 14px; }
+      .dshd-origin-label { font-size: 12px; color: var(--dsw-alias-label-secondary); }
+      .dshd-origin-title { flex: 1; font-size: 13px; color: var(--dsw-alias-label-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .dshd-rescan { font-size: 12px; padding: 4px 10px; }
       .dshd-title { font-size: 18px; font-weight: 600; letter-spacing: 0.01em; }
       .dshd-sub { font-size: 13px; line-height: 1.6; color: var(--dsw-alias-label-secondary); }
@@ -148,6 +151,7 @@ window.__ModuleLoader__.load({
       const [notice, setNotice] = useState('');
       const [selected, setSelected] = useState({});
       const [selfInherited, setSelfInherited] = useState(0);
+      const [origin, setOrigin] = useState(null);
       const aliveRef = useRef(true);
 
       const load = useCallback(async (scan) => {
@@ -158,6 +162,7 @@ window.__ModuleLoader__.load({
           if (!aliveRef.current) return;
           setItems(Array.isArray(data && data.directions) ? data.directions : []);
           setSelfInherited(Number(data && data.inherited) || 0);
+          setOrigin(data && data.origin ? data.origin : null);
           setError('');
         } catch (e) {
           if (!aliveRef.current) return;
@@ -270,6 +275,19 @@ window.__ModuleLoader__.load({
               '从当前对话分叉出独立分支：分支继承已完成的上下文，自己往下探索，主线不受影响。探索完再把选中的方向综合回主线。',
             ),
           ),
+          origin
+            ? h(
+                'div',
+                { className: 'dshd-card dshd-origin' },
+                h('span', { className: 'dshd-origin-label' }, '⑂ 分叉自'),
+                h('span', { className: 'dshd-origin-title' }, origin.title || origin.id),
+                h(
+                  'button',
+                  { className: 'dshd-btn dshd-rescan', onClick: () => open(origin.id) },
+                  '打开原会话',
+                ),
+              )
+            : null,
           h(
             'div',
             { className: 'dshd-card dshd-compose' },
@@ -299,13 +317,15 @@ window.__ModuleLoader__.load({
             ? h(
                 'div',
                 { className: 'dshd-card dshd-empty' },
-                selfInherited
-                  ? '这条会话本身是从别处分叉出来的副本，DSH 的分叉不记录来源，所以这里看不到它的来路。请回到原会话打开「方向」，在那里管理和综合各条分支。'
-                  : '还没有方向。',
-                selfInherited ? null : h('br'),
-                selfInherited ? null : '把刚才冒出来的那个「如果……呢？」写进上面的框，分叉出去试。',
-                selfInherited ? null : h('br'),
-                selfInherited ? null : '（用对话右上角 ⑂ 图标分出来的会话，也会在下面自动出现。）',
+                origin
+                  ? '这条会话是从上面的原会话分叉出来的副本。它自己再分出去的方向会出现在这里，综合则要回原会话做。'
+                  : selfInherited
+                    ? '这条会话是从别处分叉出来的副本，暂未定位到原会话。请回到原会话打开「方向」，在那里管理和综合各条分支。'
+                    : '还没有方向。',
+                origin || selfInherited ? null : h('br'),
+                origin || selfInherited ? null : '把刚才冒出来的那个「如果……呢？」写进上面的框，分叉出去试。',
+                origin || selfInherited ? null : h('br'),
+                origin || selfInherited ? null : '（用对话右上角 ⑂ 图标分出来的会话，也会在下面自动出现。）',
               )
             : h(
                 'div',
