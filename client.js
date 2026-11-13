@@ -58,6 +58,8 @@ window.__ModuleLoader__.load({
       .dshd-root { height: 100%; overflow: auto; padding: 28px 24px 96px; color: var(--dsw-alias-label-primary); }
       .dshd-inner { max-width: 940px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
       .dshd-head { display: flex; flex-direction: column; gap: 6px; }
+      .dshd-headrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .dshd-rescan { font-size: 12px; padding: 4px 10px; }
       .dshd-title { font-size: 18px; font-weight: 600; letter-spacing: 0.01em; }
       .dshd-sub { font-size: 13px; line-height: 1.6; color: var(--dsw-alias-label-secondary); }
       .dshd-card { border: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-1); border-radius: 12px; }
@@ -145,14 +147,17 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = useState(false);
       const [notice, setNotice] = useState('');
       const [selected, setSelected] = useState({});
+      const [selfInherited, setSelfInherited] = useState(0);
       const aliveRef = useRef(true);
 
-      const load = useCallback(async () => {
+      const load = useCallback(async (scan) => {
         if (!sessionId) return;
         try {
-          const data = await api(`/list?parent=${encodeURIComponent(sessionId)}`);
+          const query = `/list?parent=${encodeURIComponent(sessionId)}${scan ? '&scan=1' : ''}`;
+          const data = await api(query);
           if (!aliveRef.current) return;
           setItems(Array.isArray(data && data.directions) ? data.directions : []);
+          setSelfInherited(Number(data && data.inherited) || 0);
           setError('');
         } catch (e) {
           if (!aliveRef.current) return;
@@ -162,8 +167,8 @@ window.__ModuleLoader__.load({
 
       useEffect(() => {
         aliveRef.current = true;
-        load();
-        const timer = setInterval(load, POLL_MS);
+        load(true);
+        const timer = setInterval(() => load(false), POLL_MS);
         return () => {
           aliveRef.current = false;
           clearInterval(timer);
@@ -249,7 +254,16 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { className: 'dshd-head' },
-            h('div', { className: 'dshd-title' }, `方向${items.length ? ` · ${items.length}` : ''}`),
+            h(
+              'div',
+              { className: 'dshd-headrow' },
+              h('div', { className: 'dshd-title' }, `方向${items.length ? ` · ${items.length}` : ''}`),
+              h(
+                'button',
+                { className: 'dshd-btn dshd-rescan', disabled: busy, onClick: () => load(true) },
+                '重新扫描分叉',
+              ),
+            ),
             h(
               'div',
               { className: 'dshd-sub' },
@@ -285,9 +299,13 @@ window.__ModuleLoader__.load({
             ? h(
                 'div',
                 { className: 'dshd-card dshd-empty' },
-                '还没有方向。',
-                h('br'),
-                '把刚才冒出来的那个「如果……呢？」写进上面的框，分叉出去试。',
+                selfInherited
+                  ? '这条会话本身是从别处分叉出来的副本，DSH 的分叉不记录来源，所以这里看不到它的来路。请回到原会话打开「方向」，在那里管理和综合各条分支。'
+                  : '还没有方向。',
+                selfInherited ? null : h('br'),
+                selfInherited ? null : '把刚才冒出来的那个「如果……呢？」写进上面的框，分叉出去试。',
+                selfInherited ? null : h('br'),
+                selfInherited ? null : '（用对话右上角 ⑂ 图标分出来的会话，也会在下面自动出现。）',
               )
             : h(
                 'div',

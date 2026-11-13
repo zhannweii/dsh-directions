@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.0 — 2026-11-13
+
+识别「对话右上角 ⑂ 图标」分出来的会话。
+
+**问题**：原生分叉只在子会话里写 `inheritedEventCount`，`SessionHeader` 里**没有任何来源字段**（`parentSession` / `origin` 都为空）。此前看板只按 `parentSession` 与子代理目录（我们自己创建的带 `⑂` 标签的分支）找分支，所以原生分叉既不出现、也无法被选中综合。
+
+**做法**：以复制过来的事件前缀为证据反查来源。
+
+- `index.js` 新增 `discoverForks(parentId, forceScan)`：对每个 `isSeeded` 的候选会话读 `sessionQuery.readSession(id)`，取 `inheritedEventCount`；若 `digest(child.events[inherited-1]) === digest(parent.events[inherited-1])`，判定为从本会话复制而来。索引对齐因此还能把「孙分支」和「子分支」区分开。
+- 扫描结果缓存在内存 `lineage`，每个父会话 30s 内不重复扫描，单次最多读 `SCAN_LIMIT = 40` 个候选。
+- `GET /list?scan=1` 强制重扫；看板每次打开会先 `scan=1`，之后保持 2s 轮询。
+- `GET /list` 新增返回 `inherited`（当前会话自己被复制的条数），前端据此在空态提示「这条会话本身是副本，请回原会话查看方向」。
+- 看板头部新增「重新扫描分叉」按钮；空态补充说明「用对话右上角 ⑂ 图标分出来的会话也会自动出现」。
+- 分支卡片的问题文本回退：无标签时用分支自己的第一条 `user/message`，再回退为「（已分叉，等待输入）」。
+
 ## 0.1.0 — 2026-11-13
 
 首版：把一段对话里临时冒出来的支线，变成可并行探索、最终可综合的「方向」。

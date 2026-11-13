@@ -13,12 +13,22 @@ const MARK = '\u2442'
 const MAX_MERGE = 8
 const MERGE_SNIPPET_CHARS = 1500
 const LABEL_CHARS = 60
+/** How long a discovered-lineage scan stays warm, in ms. */
+const SCAN_TTL_MS = 30_000
+/** Upper bound of candidate sessions read in one scan. */
+const SCAN_LIMIT = 40
 
 export const inject = ['sessions', 'sessionQuery', 'agents', 'subagents']
 
 export function apply(ctx) {
   /** Branch ids already folded into the main thread (session-local, not persisted). */
   const merged = new Set()
+  /**
+   * Sessions proven to be copies of another session: the built-in ⑂ fork writes no
+   * lineage header, so the only durable evidence is the copied event prefix.
+   */
+  const lineage = new Map()
+  const scans = new Map()
 
   ctx.inject(['webServer'], (sub) => {
     sub.effect(() => {
@@ -46,8 +56,14 @@ export function apply(ctx) {
     const url = new URL(req.url ?? ROUTE, 'http://localhost')
     const parent = url.searchParams.get('parent')
     if (!parent) return send(res, 400, { error: '缺少 parent 参数' })
-    const directions = await loadDirections(parent)
-    send(res, 200, { directions })
+    const directions = await loadDirections(parent, url.searchParams.get('scan') === '1')
+    let inherited = 0
+    try {
+      inherited = Number(ctx.sessions.get(parent)?.inheritedEventCount) || 0
+    } catch {
+      /* not live */
+    }
+    send(res, 200, { directions, inherited })
   }
 
   async function createRoute(req, res) {
@@ -129,13 +145,13 @@ export function apply(ctx) {
   // ---- derivation ---------------------------------------------------------
 
   /** Every branch started from `parentId`, newest first, with derived progress. */
-  async function loadDirections(parentId) {
-    const entries = await listBranches(parentId)
+  async function loadDirections(parentId, forceScan) {
+    const entries = await listBranches(parentId, forceScan)
     const rows = await Promise.all(entries.map((entry) => describeBranch(parentId, entry)))
     return rows.sort((a, b) => stamp(b.createdAt) - stamp(a.createdAt))
   }
 
-  async function listBranches(parentId) {
+  async function listBranches(parentId, forceScan) {
     const found = new Map()
     // Catalog first: it carries the branch label and survives activations we already disposed.
     try {
@@ -159,11 +175,67 @@ export function apply(ctx) {
     } catch {
       /* lineage unavailable */
     }
+    // Prefix lineage third: sessions copied from here by the built-in ⑂ fork carry
+    // no parentSession header at all, so the copied event prefix is the only proof.
+    await discoverForks(parentId, forceScan)
+    for (const [id, info] of lineage) {
+      if (info.parentId !== parentId || found.has(id)) continue
+      found.set(id, { id, label: '', createdAt: info.createdAt })
+    }
     return [...found.values()]
   }
 
+  /**
+   * Prove which sessions are copies of `parentId`.
+   *
+   * A fork child keeps the source's events verbatim, so the event at index
+   * `inheritedEventCount - 1` is byte-identical to the parent's event at the same
+   * index. That holds even when both are forks of one origin, and it separates a
+   * grandchild from a child. Results are cached; scans are throttled.
+   */
+  async function discoverForks(parentId, forceScan) {
+    const cached = scans.get(parentId)
+    const now = Date.now()
+    if (!forceScan && cached && now - cached.at < SCAN_TTL_MS) return
+    scans.set(parentId, { at: now })
+    let parentEvents = []
+    try {
+      parentEvents = (await ctx.sessionQuery.readSession(parentId))?.events ?? []
+    } catch {
+      return
+    }
+    if (!parentEvents.length) return
+    let records = []
+    try {
+      records = await ctx.sessionQuery.listSessions()
+    } catch {
+      return
+    }
+    let budget = SCAN_LIMIT
+    for (const record of records) {
+      const header = record?.header ?? {}
+      const id = String(header.id ?? '')
+      if (!id || id === parentId || lineage.has(id)) continue
+      if (!header.isSeeded) continue
+      if (budget-- <= 0) break
+      let snapshot
+      try {
+        snapshot = await ctx.sessionQuery.readSession(id)
+      } catch {
+        continue
+      }
+      const inherited = Number(snapshot?.inheritedEventCount) || 0
+      const events = snapshot?.events ?? []
+      if (inherited <= 0) continue
+      if (inherited > parentEvents.length || inherited > events.length) continue
+      if (digest(events[inherited - 1]) !== digest(parentEvents[inherited - 1])) continue
+      lineage.set(id, { parentId, inherited, createdAt: header.createdAt })
+      scans.set(parentId, { at: Date.now() })
+    }
+  }
+
   async function describeBranch(parentId, entry) {
-    const base = { id: entry.id, createdAt: entry.createdAt, question: stripMark(entry.label), conclusion: '', tokens: 0, status: 'running', error: '', merged: merged.has(entry.id) }
+    const base = { id: entry.id, createdAt: entry.createdAt, question: stripMark(entry.label) || '（已分叉，等待输入）', conclusion: '', tokens: 0, status: 'running', error: '', merged: merged.has(entry.id) }
     let events = []
     let inherited = 0
     try {
@@ -295,6 +367,16 @@ function truncate(text, limit) {
 function stripMark(label) {
   if (typeof label !== 'string') return ''
   return label.startsWith(MARK) ? label.slice(MARK.length).trim() : label
+}
+
+/** Stable comparison key for one event record (type, seq, time, payload). */
+function digest(event) {
+  try {
+    const { type, seq, time, data } = event ?? {}
+    return JSON.stringify([type, seq, time, data])
+  } catch {
+    return ''
+  }
 }
 
 /** Ordering key for createdAt values that may be numbers, ISO strings, or Dates. */
