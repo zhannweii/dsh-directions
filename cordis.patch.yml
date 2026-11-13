@@ -1,0 +1,4 @@
+- insert:
+    - id: dsh-directions
+      name: 'dsh-directions'
+      config: {}

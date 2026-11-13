@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Directions (dsh-directions)",
+    "description": "Fork a conversation into independent direction branches, compare what each one found, and fold the chosen results back into the main thread as one synthesis."
+  }
+}
