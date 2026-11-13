@@ -1,0 +1,71 @@
+{
+  "format": 1,
+  "title": {
+    "en": "dsh-directions",
+    "zh": "dsh-directions 方向"
+  },
+  "description": {
+    "en": "Market index for the dsh-directions plugin: fork one conversation into independent direction branches and synthesize the chosen results back into the main thread.",
+    "zh": "dsh-directions 插件市场索引：把一段对话分叉成多个独立方向，再把选中的结论综合回主线。"
+  },
+  "metadata": {
+    "categories": {
+      "knowledge": {
+        "title": {
+          "en": "Memory & knowledge",
+          "zh": "记忆与知识"
+        }
+      },
+      "interface": {
+        "title": {
+          "en": "Interface add-ons",
+          "zh": "界面功能增强"
+        }
+      }
+    }
+  },
+  "plugins": [
+    {
+      "name": "dsh-directions",
+      "title": {
+        "en": "Directions",
+        "zh": "方向"
+      },
+      "description": {
+        "en": "Explore one conversation in several directions at once: each side question becomes a real forked session shown on one board, and the branches you keep are synthesized back into the main thread.",
+        "zh": "让一段对话同时向多个方向展开：每个支线问题变成真正 fork 的子会话并在同一看板中展示，保留的方向最后综合回主线。"
+      },
+      "icon": "icons/dsh-directions.svg",
+      "author": "zhannweii",
+      "homepage": "https://github.com/zhannweii/dsh-directions#readme",
+      "repository": {
+        "url": "https://github.com/zhannweii/dsh-directions"
+      },
+      "metadata": {
+        "category": "knowledge",
+        "keywords": [
+          "branch",
+          "conversation",
+          "directions",
+          "fork",
+          "side-quest",
+          "synthesis"
+        ]
+      },
+      "versions": [
+        {
+          "version": "0.1.0",
+          "publishTimestamp": 1794583994,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/zhannweii/dsh-directions",
+            "commit": "f7f054522a5289a8f838889979a6e3ba14099c95"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.2 || >=0.2.1-rc.2 || >=0.2.2-rc.1"
+          }
+        }
+      ]
+    }
+  ]
+}
