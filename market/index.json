@@ -55,11 +55,11 @@
       "versions": [
         {
           "version": "0.1.0",
-          "publishTimestamp": 1794583994,
+          "publishTimestamp": 1794584800,
           "source": {
             "type": "git",
             "url": "https://github.com/zhannweii/dsh-directions",
-            "commit": "f7f054522a5289a8f838889979a6e3ba14099c95"
+            "commit": "fe908e399cba0d8a75fb2cf7174a5bf452f221aa"
           },
           "engines": {
             "dsh": ">=0.2.0-rc.2 || >=0.2.1-rc.2 || >=0.2.2-rc.1"
